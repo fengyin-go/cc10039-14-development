@@ -10,6 +10,7 @@ import datetime
 from typing import Any
 
 from app.seed import SEED_ROWS
+from app.seed_metering import INTERNAL_TABLE_NAMES, METERING_SEED
 
 
 class Store:
@@ -17,6 +18,10 @@ class Store:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        # 分域计量派生表：归属登记、结算周期、结算统计和逐条归属对照。
+        # 它们是访问审计和湖表注册的派生数据，不参与通用模块列表。
+        for name, rows in METERING_SEED.items():
+            self._tables.setdefault(name, [dict(row) for row in rows])
         # 跨模块事件日志：记录所有跨模块操作
         self._events: list[dict[str, Any]] = []
         # 模块快照备份：用于检查点和恢复
@@ -25,7 +30,8 @@ class Store:
     # ---- 基础读写 ----
 
     def module_names(self) -> list[str]:
-        return sorted(self._tables)
+        """业务模块名；分域计量的派生表不参与模块列表和运营概览。"""
+        return sorted(name for name in self._tables if name not in INTERNAL_TABLE_NAMES)
 
     def rows(self, module: str) -> list[dict[str, Any]]:
         return self._tables.setdefault(module, [])

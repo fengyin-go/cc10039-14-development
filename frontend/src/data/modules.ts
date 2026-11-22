@@ -17,7 +17,7 @@ export const MODULES: ModuleMeta[] = [
     key: "lake_table",
     name: "湖表注册",
     entity: "湖表",
-    desc: "管理数据湖表注册、存储格式和数据域归属",
+    desc: "管理数据湖表注册、存储格式和带表标识的业务域归属记录",
     fields: ["表名", "所属业务域", "存储格式", "分区键", "当前分片数"],
     statuses: ["创建中", "已注册", "已下线"],
     actions: ["注册入湖", "下线湖表"],

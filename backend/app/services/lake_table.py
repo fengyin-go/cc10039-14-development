@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services.domain_metering import service as metering
 from app.store import store
 
 
@@ -21,8 +22,17 @@ class LakeTableService(BaseModuleService):
     ACTION_RULES = {"注册入湖": "已注册", "下线湖表": "已下线"}
     NEGATIVE_ACTIONS = ["下线湖表"]
 
+    def create_entry(self, values: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
+        """登记湖表时补齐表标识，并登记带表标识的业务域归属记录。"""
+        entry, missing = super().create_entry(values)
+        if entry is None:
+            return entry, missing
+        metering.ensure_table_identifier(entry)
+        metering.seed_ownership_for_new_table(entry)
+        return entry, missing
+
     def register_table(self, entry_id: int) -> tuple[dict[str, Any] | None, str]:
-        """注册湖表入湖：触发冷热分层和保留策略的初始化检查。"""
+        """注册湖表入湖：登记业务域归属，并触发下游初始化检查。"""
         entry = store.find(self.MODULE, entry_id)
         if entry is None:
             return None, "湖表不存在"
@@ -30,6 +40,8 @@ class LakeTableService(BaseModuleService):
             return None, f"湖表状态为{entry.get('status')}，不可注册"
 
         table_name = entry.get("表名", "")
+        table_identifier = metering.ensure_table_identifier(entry)
+        ownership = metering.register_ownership(entry, operator="湖表注册")
 
         # 1) 检查是否已有分区策略分配了分区键
         policies = store.find_by_field("partition_policy", "目标湖表", table_name)
@@ -63,10 +75,16 @@ class LakeTableService(BaseModuleService):
 
         store.log_event("lake_table_registered", "lake_table", "lake_table", {
             "table_id": entry_id,
+            "table_identifier": table_identifier,
             "table_name": table_name,
+            "ownership_no": ownership.get("归属记录编号"),
+            "business_domain": ownership.get("业务域"),
         })
 
-        return entry, f"湖表 {table_name} 已注册入湖"
+        return entry, (
+            f"湖表 {table_name} 已注册入湖，表标识 {table_identifier}，"
+            f"业务域 {ownership.get('业务域')}（归属 {ownership.get('归属记录编号')}）"
+        )
 
     def offline_table(self, entry_id: int) -> tuple[dict[str, Any] | None, str]:
         """下线湖表：逐模块检查依赖后方可下线。"""

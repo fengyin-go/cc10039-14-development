@@ -59,3 +59,87 @@ export async function loadOverview(): Promise<OverviewResult> {
   if (!response.ok) throw new Error('运营概览读取失败')
   return await response.json()
 }
+
+// ---- 分域计量：所有读取都显式带上业务域，跨域读取由后端返回 403 ----
+
+async function requestMetering<T>(
+  path: string,
+  params: Record<string, string> = {},
+): Promise<T> {
+  const query = new URLSearchParams(params).toString()
+  const response = await request(`/api/metering${path}${query ? `?${query}` : ''}`)
+  if (!response.ok) {
+    let detail = `接口返回 ${response.status}`
+    try {
+      const payload = (await response.json()) as { detail?: string }
+      if (payload?.detail) detail = payload.detail
+    } catch {
+      // 保留状态码说明
+    }
+    throw new Error(detail)
+  }
+  return (await response.json()) as T
+}
+
+export async function loadMeteringOverview() {
+  return requestMetering<import('@/domain/metering').MeteringOverview>('/overview')
+}
+
+export async function loadOwnership(tableId?: number) {
+  return requestMetering<{ total: number; items: import('@/domain/metering').OwnershipRecord[] }>(
+    '/ownership',
+    tableId ? { table_id: String(tableId) } : {},
+  )
+}
+
+export async function loadDomainDataset(domain: string, period: string) {
+  return requestMetering<import('@/domain/metering').DomainDataset>('/datasets', {
+    domain,
+    period,
+  })
+}
+
+export async function loadDomainSettlements(domain: string) {
+  return requestMetering<import('@/domain/metering').DomainSettlementStats>(
+    '/settlements',
+    { domain },
+  )
+}
+
+export async function loadSettlementDetails(settlementNo: string, domain: string) {
+  return requestMetering<import('@/domain/metering').DomainDataset>(
+    `/settlements/${encodeURIComponent(settlementNo)}`,
+    { domain },
+  )
+}
+
+export async function refreshPeriod(period: string) {
+  const response = await request(`/api/metering/periods/${encodeURIComponent(period)}/refresh`, {
+    method: 'POST',
+  })
+  return (await response.json()) as { ok: boolean; message: string }
+}
+
+export async function settlePeriod(period: string, domain: string) {
+  const response = await request('/api/metering/settle', {
+    method: 'POST',
+    body: JSON.stringify({ period, domain }),
+  })
+  return (await response.json()) as { ok: boolean; message: string }
+}
+
+export async function changeOwnership(
+  tableId: number,
+  domain: string,
+  effectiveTime?: string,
+) {
+  const response = await request('/api/metering/ownership/change', {
+    method: 'POST',
+    body: JSON.stringify({
+      table_id: tableId,
+      domain,
+      effective_time: effectiveTime || null,
+    }),
+  })
+  return (await response.json()) as { ok: boolean; message: string }
+}
